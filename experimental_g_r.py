@@ -6,68 +6,97 @@ import sys
 import time
 import matplotlib.pyplot as plt
 
+
+def read_xyz_file(filename, dimensions):
+    particle_positions = []
+    frame_number = 0
+    line_number = 0
+    with open(filename, 'r') as input_file:
+        for line in input_file:
+            if line_number == 0:
+                # Check for blank line at end of file
+                if line != "":
+                    frame_particles = int(line)
+                    particle_positions.append(np.zeros((frame_particles, dimensions)))
+            elif line_number == 1:
+                comment = line
+            else:
+                particle_positions[frame_number][line_number-2] = line.split()[1:]
+            line_number += 1
+            # If we have reached the last particle in the frame, reset counter for next frame
+            if line_number == (frame_particles + 2):
+                line_number = 0
+                frame_number += 1
+
+    num_frames = len(particle_positions)
+
+    return particle_positions, num_frames
+
+
+def get_list_max(frame_list):
+    list_max = 0
+    for frame in frame_list:
+        if frame.max() > list_max:
+            list_max = frame.max()
+    return list_max
+
+
 def main():
     start_time = time.time()
-    #np.seterr(divide='ignore', invalid='ignore')
 
     # Read in and process arguments
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 4:
         print("ERROR: missing mandatory argument!")
-        print("usage: Gr coordfile  binsize[pixel]")
-        print("example SeriesXX_coords.txt 0.5")
+        print("usage: Gr coordfile  binsize[pixel] dimensions")
+        print("example SeriesXX_coords.txt 0.5 3")
         exit(2)
-    if len(sys.argv) == 3:
+    if len(sys.argv) == 4:
         filename = sys.argv[1]
-        dr = float(sys.argv[2])
+        bin_width = float(sys.argv[2])
+        dimensions = int(sys.argv[3])
 
-    print("# file %s" % filename)
-    particle_positions = np.genfromtxt(filename)
-    num_particles = len(particle_positions)
+    particle_positions, num_frames = read_xyz_file(filename, dimensions)
 
-    print("# size before cutting borders: ")
-    print("# x size: %d %d "%(particle_positions[:,0].min(),particle_positions[:,0].max()))
-    print("# y size: %d %d "%(particle_positions[:,1].min(),particle_positions[:,1].max()))
-    print("# z size: %d %d "%(particle_positions[:,2].min(),particle_positions[:,2].max()))
-    print("# Number of Particles: %d " % num_particles)
-    print("# init done %1.3f s" % (time.time() - start_time))
+    # Calculate bins and bin centers
+    bins = np.arange(0, get_list_max(particle_positions), bin_width)
+    bincenters = 0.5 * (bins[1:] + bins[:-1])
 
-    start_time = time.time()
-    bins=np.arange(0,particle_positions[:,0].max(), dr)
-    dimensions = 3
+    num_particles = np.zeros(num_frames, dtype=np.int)
+    hist = np.zeros((num_frames, len(bins)-1))
+    # calculate the g(r) for each frame
+    for frame in range(num_frames):
+        num_particles[frame] = len(particle_positions[frame])
 
-    # create a random gas in the same box as the real particles
-    random_gas_positions = np.zeros((num_particles, dimensions))
-    for i in range(0, dimensions):
-        random_gas_positions[:, i] = np.random.uniform(particle_positions[:,i].min(),particle_positions[:,i].max(),size=num_particles)
+        # create a random gas in the same box as the real particles
+        rg_positions = np.zeros((num_particles[frame], dimensions))
+        for i in range(0, dimensions):
+            rg_positions[:, i] = np.random.uniform(particle_positions[frame][:, i].min(),
+                                                   particle_positions[frame][:, i].max(), size=num_particles[frame])
 
-    #calculate distances for randomn gas and bin them
-    RID = sp.spatial.distance.pdist(random_gas_positions, 'euclidean').flatten()
-    HID, binsID, binnumbersID = sp.stats.binned_statistic(RID, RID, statistic='count', bins=bins)
-    print("# ideal gas done %1.3f s"%(time.time() - start_time))
+        # calculate distances for random gas and bin them
+        rg_distances = sp.spatial.distance.pdist(rg_positions, 'euclidean').flatten()
+        rg_hist = sp.stats.binned_statistic(rg_distances, rg_distances, statistic='count', bins=bins)[0]
 
-    # Calculate distances for experimental particles and bin them
-    start_time = time.time()
-    RC = sp.spatial.distance.pdist(particle_positions, 'euclidean').flatten()
-    print("# particles done %1.3f s"%(time.time() - start_time))
-    print("# bin size: %f array [%f,%f]"%(dr,1,RC.max()))
-    print("# number of bins: %d"%(len(bins)))
-    H,bins,binnumbers=sp.stats.binned_statistic(RC, RC, statistic='count', bins=bins)
+        # Calculate distances for experimental particles and bin them
+        exp_distances = sp.spatial.distance.pdist(particle_positions[frame], 'euclidean').flatten()
+        exp_hist = sp.stats.binned_statistic(exp_distances, exp_distances, statistic='count', bins=bins)[0]
 
-    #calculate bin centers and normalise
-    bincenters = 0.5*(bins[1:]+bins[:-1])
-    hist=H/HID
-    #take care of 0/0 and x/0, set to 0
-    hist[np.isnan(hist)] = 0
-    hist[np.isinf(hist)] = 0
-    #save result in file
-    with open(filename+"_CC_r.hist",'wb') as f:
-        np.savetxt(f, np.column_stack((bincenters,hist,H,HID)), fmt='%f')
+        # normalisation of g(r)
+        hist[frame] = exp_hist / rg_hist
+        # take care of 0/0 and x/0, set to 0
+        hist[frame][np.isnan(hist[frame])] = 0
+        hist[frame][np.isinf(hist[frame])] = 0
 
-    print("# binning done %1.3f s"%(time.time() - start_time))
+    # normalisation of frames
+    hist = np.sum((hist.T * num_particles/np.sum(num_particles)).T, axis=0)
 
-    plt.plot(bincenters[:len(bincenters)],hist[:len(bincenters)],'-')
-    plt.ylim(0,5)
-    plt.xlim(0,150)
+    # save result in file
+    with open("%s_hist_bin%1.1f.txt" % (filename, bin_width), 'wb') as f:
+        np.savetxt(f, np.column_stack((bincenters, hist)), fmt='%f')
+
+    plt.plot(bincenters[:len(bincenters)], hist[:len(bincenters)], '-')
+    plt.ylim(0, 5)
+    plt.xlim(0, 150)
     plt.show()
 
 main()
