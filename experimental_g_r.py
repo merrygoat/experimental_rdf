@@ -5,6 +5,7 @@ import numpy as np
 import sys
 import time
 import matplotlib.pyplot as plt
+from tqdm import trange
 
 
 def read_xyz_file(filename, dimensions):
@@ -45,17 +46,20 @@ def main():
     start_time = time.time()
 
     # Read in and process arguments
-    if len(sys.argv) != 4:
+    if len(sys.argv) != 5:
         print("ERROR: missing mandatory argument!")
-        print("usage: Gr coordfile  binsize[pixel] dimensions")
-        print("example SeriesXX_coords.txt 0.5 3")
+        print("usage: Gr coordfile  binsize[pixel] dimensions number_of_frames_to_analyze")
+        print("example SeriesXX_coords.txt 0.5 3 100")
         exit(2)
-    if len(sys.argv) == 4:
+    if len(sys.argv) == 5:
         filename = sys.argv[1]
         bin_width = float(sys.argv[2])
         dimensions = int(sys.argv[3])
+        user_frames = int(sys.argv[4])
 
     particle_positions, num_frames = read_xyz_file(filename, dimensions)
+    if user_frames < num_frames:
+        num_frames = user_frames
 
     # Calculate bins and bin centers
     bins = np.arange(0, get_list_max(particle_positions), bin_width)
@@ -64,7 +68,7 @@ def main():
     num_particles = np.zeros(num_frames, dtype=np.int)
     hist = np.zeros((num_frames, len(bins)-1))
     # calculate the g(r) for each frame
-    for frame in range(num_frames):
+    for frame in trange(num_frames):
         num_particles[frame] = len(particle_positions[frame])
 
         # create a random gas in the same box as the real particles
