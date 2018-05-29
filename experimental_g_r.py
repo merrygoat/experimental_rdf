@@ -1,9 +1,8 @@
 #!/usr/bin/env python
-import scipy as sp
-from scipy import spatial,stats
+import scipy
+from scipy import spatial, stats
 import numpy as np
 import sys
-import time
 import matplotlib.pyplot as plt
 from tqdm import trange
 
@@ -43,19 +42,8 @@ def get_list_max(frame_list):
 
 
 def main():
-    start_time = time.time()
 
-    # Read in and process arguments
-    if len(sys.argv) != 5:
-        print("ERROR: missing mandatory argument!")
-        print("usage: Gr coordfile  binsize[pixel] dimensions number_of_frames_to_analyze")
-        print("example SeriesXX_coords.txt 0.5 3 100")
-        exit(2)
-    if len(sys.argv) == 5:
-        filename = sys.argv[1]
-        bin_width = float(sys.argv[2])
-        dimensions = int(sys.argv[3])
-        user_frames = int(sys.argv[4])
+    bin_width, dimensions, filename, user_frames = process_arguments()
 
     particle_positions, num_frames = read_xyz_file(filename, dimensions)
     if user_frames < num_frames:
@@ -78,12 +66,12 @@ def main():
                                                    particle_positions[frame][:, i].max(), size=num_particles[frame])
 
         # calculate distances for random gas and bin them
-        rg_distances = sp.spatial.distance.pdist(rg_positions, 'euclidean').flatten()
-        rg_hist = sp.stats.binned_statistic(rg_distances, rg_distances, statistic='count', bins=bins)[0]
+        rg_distances = scipy.spatial.distance.pdist(rg_positions, 'euclidean').flatten()
+        rg_hist = scipy.stats.binned_statistic(rg_distances, rg_distances, statistic='count', bins=bins)[0]
 
         # Calculate distances for experimental particles and bin them
-        exp_distances = sp.spatial.distance.pdist(particle_positions[frame], 'euclidean').flatten()
-        exp_hist = sp.stats.binned_statistic(exp_distances, exp_distances, statistic='count', bins=bins)[0]
+        exp_distances = scipy.spatial.distance.pdist(particle_positions[frame], 'euclidean').flatten()
+        exp_hist = scipy.stats.binned_statistic(exp_distances, exp_distances, statistic='count', bins=bins)[0]
 
         # normalisation of g(r)
         hist[frame] = exp_hist / rg_hist
@@ -102,5 +90,21 @@ def main():
     plt.ylim(0, 5)
     plt.xlim(0, 150)
     plt.show()
+
+
+def process_arguments():
+    # Read in and process arguments
+    if len(sys.argv) != 5:
+        print("ERROR: missing mandatory argument!")
+        print("usage: Gr coordfile  binsize[pixel] dimensions number_of_frames_to_analyze")
+        print("example SeriesXX_coords.txt 0.5 3 100")
+        raise SyntaxError
+    if len(sys.argv) == 5:
+        filename = sys.argv[1]
+        bin_width = float(sys.argv[2])
+        dimensions = int(sys.argv[3])
+        user_frames = int(sys.argv[4])
+    return bin_width, dimensions, filename, user_frames
+
 
 main()
